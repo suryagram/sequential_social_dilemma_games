@@ -9,6 +9,7 @@ import tensorflow as tf
 
 from social_dilemmas.envs.harvest import HarvestEnv
 from social_dilemmas.envs.cleanup import CleanupEnv
+from social_dilemmas.envs.harvest_comm import HarvestCommEnv
 from models.conv_to_fc_net import ConvToFCNet
 
 
@@ -70,6 +71,10 @@ def setup(env, hparams, algorithm, train_batch_size, num_cpus, num_gpus,
         def env_creator(_):
             return HarvestEnv(num_agents=num_agents)
         single_env = HarvestEnv()
+    elif env == "harvest_comm":
+        def env_creator(_):
+            return HarvestCommEnv(num_agents=num_agents)
+        single_env = HarvestCommEnv()
     else:
         def env_creator(_):
             return CleanupEnv(num_agents=num_agents)
@@ -145,7 +150,7 @@ def setup(env, hparams, algorithm, train_batch_size, num_cpus, num_gpus,
 
 def main(unused_argv):
     ray.init(num_cpus=FLAGS.num_cpus, redirect_output=True)
-    if FLAGS.env == 'harvest':
+    if FLAGS.env == 'harvest' or FLAGS.env == "harvest_comm":
         hparams = harvest_default_params
     else:
         hparams = cleanup_default_params

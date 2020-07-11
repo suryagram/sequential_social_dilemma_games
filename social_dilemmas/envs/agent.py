@@ -1,7 +1,6 @@
 """Base class for an agent that defines the possible actions. """
 
-from gym.spaces import Box
-from gym.spaces import Discrete
+from gym.spaces import Box, Discrete, Tuple
 import numpy as np
 import utility_funcs as util
 
@@ -194,6 +193,35 @@ class HarvestAgent(Agent):
             return ' '
         else:
             return char
+
+HARVEST_COMM_BITS = 8
+
+def harvest_comm_actions(action_vector):
+    return
+
+
+
+class HarvestCommAgent(HarvestAgent):
+
+    def __init__(self, agent_id, start_pos, start_orientation, grid, view_len=HARVEST_VIEW_SIZE):
+        super().__init__(agent_id, start_pos, start_orientation, grid, view_len=HARVEST_VIEW_SIZE)
+
+    @property
+    def action_space(self):
+        physical = Discrete(8)
+        # comm_disc = Tuple(list(Discrete(1) for i in range(HARVEST_COMM_BITS)))
+        comm = Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32)
+        total = Tuple((physical, comm))
+        return total
+
+    def action_map(self, action_number):
+        return (super().action_map(action_number),
+                # Tuple(list(Discrete(1) for i in range(HARVEST_COMM_BITS))).sample()
+                Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32).sample()
+                )
+
+
+
 
 
 CLEANUP_ACTIONS = BASE_ACTIONS.copy()

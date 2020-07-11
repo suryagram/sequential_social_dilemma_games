@@ -722,3 +722,70 @@ class MapEnv(MultiAgentEnv):
             return False
         else:
             return True
+
+
+class MapCommEnv(MapEnv):
+
+    def __init__(self, ascii_map, num_agents=1, render=True, color_map=None):
+        super().__init__(ascii_map, num_agents, render, color_map)
+
+    def setup_agents(self):
+        """Construct all the agents for the environment"""
+        raise NotImplementedError
+
+    def step(self, actions):
+        """Takes in a dict of actions and converts them to a map update
+
+        Parameters
+        ----------
+        actions: dict {agent-id: int}
+        actions: dict {agent-id: dict {'u': int, 'c': int[] }
+            dict of actions, keyed by agent-id that are passed to the agent. The agent
+            interprets the int and converts it to a command
+
+        Returns
+        -------
+        observations: dict of arrays representing agent observations
+        rewards: dict of rewards for each agent
+        dones: dict indicating whether each agent is done
+        info: dict to pass extra info to gym
+        """
+
+        self.beam_pos = []
+        agent_physical_actions = {}
+        agent_communication_actions = {}
+        agent_actions = {}
+        for agent_id, action in actions.items():
+            agent_physical_action, agent_communication_action = self.agents[agent_id].action_map(action[0])
+            agent_physical_actions[agent_id] = agent_physical_action
+            agent_communication_actions[agent_id] = agent_communication_action
+
+        # move
+        self.update_moves(agent_physical_actions)
+
+        for agent in self.agents.values():
+            pos = agent.get_pos()
+            new_char = agent.consume(self.world_map[pos[0], pos[1]])
+            self.world_map[pos[0], pos[1]] = new_char
+
+        # execute custom moves like firing
+        self.update_custom_moves(agent_physical_actions)
+
+        # execute spawning events
+        self.custom_map_update()
+
+        map_with_agents = self.get_map_with_agents()
+
+        observations = {}
+        rewards = {}
+        dones = {}
+        info = {}
+        for agent in self.agents.values():
+            agent.grid = map_with_agents
+            rgb_arr = self.map_to_colors(agent.get_state(), self.color_map)
+            rgb_arr = self.rotate_view(agent.orientation, rgb_arr)
+            observations[agent.agent_id] = rgb_arr
+            rewards[agent.agent_id] = agent.compute_reward()
+            dones[agent.agent_id] = agent.get_done()
+        dones["__all__"] = np.any(list(dones.values()))
+        return observations, rewards, dones, info
