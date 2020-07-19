@@ -4,11 +4,17 @@ from social_dilemmas.envs.agent import HarvestCommAgent
 from social_dilemmas.constants import HARVEST_MAP
 from social_dilemmas.envs.map_env import MapCommEnv, ACTIONS
 
+from gym.spaces import Dict
+
+from social_dilemmas.envs.communication_utils import apply_noise, calculate_l2_distance, round_array_to_int
+
 APPLE_RADIUS = 2
 
 ACTIONS['FIRE'] = 5
 
 SPAWN_PROB = [0, 0.005, 0.02, 0.05]
+
+DECIBAL_NOISE_CONSTANT = 0.05
 
 
 class HarvestCommEnv(MapCommEnv):

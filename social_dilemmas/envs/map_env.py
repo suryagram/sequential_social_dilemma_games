@@ -7,6 +7,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from ray.rllib.env import MultiAgentEnv
 
+from gym.spaces import Dict, Tuple, Discrete, Box
+
+from social_dilemmas.envs.communication_utils import apply_noise, calculate_l2_distance,\
+    round_array_to_int, mute_communications
+
+DECIBAL_NOISE_CONSTANT = 0.05
+
 ACTIONS = {'MOVE_LEFT': [-1, 0],  # Move left
            'MOVE_RIGHT': [1, 0],  # Move right
            'MOVE_UP': [0, -1],  # Move up
@@ -733,38 +740,72 @@ class MapCommEnv(MapEnv):
         """Construct all the agents for the environment"""
         raise NotImplementedError
 
-    def step(self, actions):
-        """Takes in a dict of actions and converts them to a map update
+    def reset(self):
+        """Reset the environment.
 
-        Parameters
-        ----------
-        actions: dict {agent-id: int}
-        actions: dict {agent-id: dict {'u': int, 'c': int[] }
-            dict of actions, keyed by agent-id that are passed to the agent. The agent
-            interprets the int and converts it to a command
+        This method is performed in between rollouts. It resets the state of
+        the environment.
 
         Returns
         -------
-        observations: dict of arrays representing agent observations
-        rewards: dict of rewards for each agent
-        dones: dict indicating whether each agent is done
-        info: dict to pass extra info to gym
+        observation: dict of numpy ndarray
+            the initial observation of the space. The initial reward is assumed
+            to be zero.
         """
+        self.beam_pos = []
+        self.agents = {}
+        self.setup_agents()
+        self.reset_map()
+        self.custom_map_update()
+
+        map_with_agents = self.get_map_with_agents()
+
+        observations = {}
+        for agent in self.agents.values():
+            agent.grid = map_with_agents
+            # agent.grid = util.return_view(map_with_agents, agent.pos,
+            #                               agent.row_size, agent.col_size)
+            rgb_arr = self.map_to_colors(agent.get_state(), self.color_map)
+            comm_obs = Box(0.0, 1.0, (15, 15, 1), dtype=np.float32).sample()
+            observations[agent.agent_id] = np.concatenate((rgb_arr, comm_obs), axis=2)
+
+        return observations
+
+    def step(self, actions):
+        """Takes in a dict of actions and converts them to a map update
+
+                Parameters
+                ----------
+                actions: dict {agent-id: int}
+                actions: dict {agent-id: dict {'u': int, 'c': int[] }
+                    dict of actions, keyed by agent-id that are passed to the agent. The agent
+                    interprets the int and converts it to a command
+
+                Returns
+                -------
+                observations: dict of arrays representing agent observations
+                rewards: dict of rewards for each agent
+                dones: dict indicating whether each agent is done
+                info: dict to pass extra info to gym
+                """
 
         self.beam_pos = []
         agent_physical_actions = {}
         agent_communication_actions = {}
         agent_actions = {}
         for agent_id, action in actions.items():
-            agent_physical_action, agent_communication_action = self.agents[agent_id].action_map(action[0])
+            agent_physical_action = self.agents[agent_id].action_map(action[0])
+            agent_communication_action = action[1]
             agent_physical_actions[agent_id] = agent_physical_action
             agent_communication_actions[agent_id] = agent_communication_action
 
         # move
         self.update_moves(agent_physical_actions)
 
+        agent_pos = {}
         for agent in self.agents.values():
             pos = agent.get_pos()
+            agent_pos[agent.agent_id] = pos
             new_char = agent.consume(self.world_map[pos[0], pos[1]])
             self.world_map[pos[0], pos[1]] = new_char
 
@@ -780,12 +821,49 @@ class MapCommEnv(MapEnv):
         rewards = {}
         dones = {}
         info = {}
+
+        comm_obs_dict = self.calculate_comm_tensor(agent_pos, agent_communication_actions)
+
         for agent in self.agents.values():
             agent.grid = map_with_agents
             rgb_arr = self.map_to_colors(agent.get_state(), self.color_map)
             rgb_arr = self.rotate_view(agent.orientation, rgb_arr)
-            observations[agent.agent_id] = rgb_arr
+            # observations[agent.agent_id] = Dict({'physical': rgb_arr,
+            #                                     'comm': comm_obs_list[agent.agent_id]})
+            observations[agent.agent_id] = np.dstack((rgb_arr, comm_obs_dict[agent.agent_id]))
+            # observations[agent.agent_id] = rgb_arr
             rewards[agent.agent_id] = agent.compute_reward()
             dones[agent.agent_id] = agent.get_done()
         dones["__all__"] = np.any(list(dones.values()))
+        # return observations, rewards, dones, info
         return observations, rewards, dones, info
+
+    def calculate_comm_tensor(self, agent_pos_dict, comm_dict):
+        comm_obs_dict = {}
+        for agent in self.agents.values():
+            comm_obs_dict[agent.agent_id] = self.calculate_single_comm_matrix(agent, agent_pos_dict, comm_dict)
+        return comm_obs_dict
+
+    def calculate_single_comm_matrix(self, agent, pos_dict, comm_dict):
+        my_comm = comm_dict[agent.agent_id]
+        my_pos = pos_dict[agent.agent_id]
+        others_comm_dict = {a.agent_id: comm_dict[a.agent_id]
+                            for a in self.agents.values() if a.agent_id != agent.agent_id}
+        others_comm_list = [others_comm_dict[key] for key in sorted(others_comm_dict.keys())]
+        others_pos_dict = {a.agent_id: pos_dict[a.agent_id]
+                           for a in self.agents.values() if a.agent_id != agent.agent_id}
+        others_pos_list = [others_pos_dict[key] for key in sorted(others_pos_dict.keys())]
+        ordered_comm_list = np.vstack((my_comm, others_comm_list))
+        # ordered_comm_list = my_comm.append(others_comm_list)
+        ordered_pos_list = np.vstack((my_pos, others_pos_list))
+        # ordered_pos_list = my_pos.append(others_pos_list)
+        pos_comm = zip(ordered_pos_list, ordered_comm_list)
+        comm_matrix = [
+            mute_communications(
+                round_array_to_int(
+                    apply_noise(pc[1], DECIBAL_NOISE_CONSTANT,
+                                calculate_l2_distance(my_pos, pc[0])
+                                )
+                )
+            ) for pc in pos_comm]
+        return comm_matrix

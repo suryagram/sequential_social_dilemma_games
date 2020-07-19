@@ -1,6 +1,6 @@
 """Base class for an agent that defines the possible actions. """
 
-from gym.spaces import Box, Discrete, Tuple
+from gym.spaces import Box, Discrete, Tuple, Dict
 import numpy as np
 import utility_funcs as util
 
@@ -194,10 +194,7 @@ class HarvestAgent(Agent):
         else:
             return char
 
-HARVEST_COMM_BITS = 8
-
-def harvest_comm_actions(action_vector):
-    return
+HARVEST_COMM_BITS = 14
 
 
 
@@ -210,15 +207,21 @@ class HarvestCommAgent(HarvestAgent):
     def action_space(self):
         physical = Discrete(8)
         # comm_disc = Tuple(list(Discrete(1) for i in range(HARVEST_COMM_BITS)))
-        comm = Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32)
+        comm = Box(low=0.0, high=1.0, shape=(15,), dtype=np.float32)
         total = Tuple((physical, comm))
         return total
 
-    def action_map(self, action_number):
-        return (super().action_map(action_number),
-                # Tuple(list(Discrete(1) for i in range(HARVEST_COMM_BITS))).sample()
-                Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32).sample()
-                )
+
+    @property
+    def observation_space(self):
+        return Box(low=0.0, high=0.0, shape=(2 * self.view_len + 1,
+                                            2 * self.view_len + 1, 4), dtype=np.float32)
+        #physical = Box(low=0.0, high=0.0, shape=(2 * self.view_len + 1,
+        #                                    2 * self.view_len + 1, 3), dtype=np.float32)
+        #comm = Box(low=0.0, high=1.0, shape=(15, 15, 1), dtype=np.float32)
+        #total = Dict(dict(physical_space=physical, comm_space=comm))
+        #return total
+
 
 
 
